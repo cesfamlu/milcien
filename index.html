@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Puntajes</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+    <style>
+        body {
+            background-color: #f4f4f4;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        thead th, tbody th {
+            position: sticky;
+            top: 0;
+            background-color: white;
+            z-index: 2;
+        }
+        thead {
+            position: sticky;
+            top: 0;
+            background-color: white;
+            z-index: 3;
+        }
+        tbody th {
+            position: sticky;
+            left: 0;
+            background-color: white;
+            z-index: 3;
+        }
+        .score-input {
+            width: 70px;
+            text-align: center;
+        }
+        .total-score {
+            font-weight: bold;
+            width: 80px;
+            text-align: center;
+        }
+        .winner {
+            color: green;
+            font-weight: bold;
+            text-align: center;
+        }
+        @keyframes winner-anim {
+            0%, 100% {
+                transform: scale(1);
+                color: green;
+            }
+            50% {
+                transform: scale(1.15);
+                color: #43a047; /* Un verde un poco más claro */
+            }
+        }
+        .winner-anim {
+            animation: winner-anim 2s infinite;
+        }
+        div img{
+            max-width: 800px;
+            margin: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Se reemplaza el encabezado h3 por una imagen -->
+        <div class="center">
+            <img src="img/MILcien.gif" alt="MILcien">
+        </div>
+        
+        <div class="input-field">
+            <input type="text" id="playerName" placeholder="Nombre del jugador">
+            <button class="btn waves-effect waves-light" id="addPlayerBtn">Añadir Jugador</button>
+        </div>
+        <button class="btn waves-effect waves-light" id="addRoundBtn">Añadir Ronda</button>
+        <button class="btn red waves-effect waves-light" id="removeRoundBtn">Eliminar Última Ronda</button>
+        <button class="btn green waves-effect waves-light" id="saveDataBtn">Guardar Datos</button>
+        <button class="btn grey waves-effect waves-light" id="resetGameBtn">Reiniciar Partida</button>
+
+        <h2 id="winnerMessage" class="winner"></h2>
+        <div style="max-height: 400px; overflow-y: auto; overflow-x: auto;">
+            <table class="highlight centered">
+                <thead>
+                    <tr id="playersRow">
+                        <th>Ronda</th>
+                    </tr>
+                </thead>
+                <tbody id="scoreTable"></tbody>
+                <tfoot>
+                    <tr id="totalRow">
+                        <th>Total</th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+    <script>
+        let players = JSON.parse(localStorage.getItem("players")) || [];
+        let rounds = JSON.parse(localStorage.getItem("rounds")) || [];
+        // Para prevenir reordenamientos repetidos e infinitos
+        let isReordering = false;
+
+        document.getElementById("addPlayerBtn").addEventListener("click", addPlayer);
+        document.getElementById("addRoundBtn").addEventListener("click", addRound);
+        document.getElementById("removeRoundBtn").addEventListener("click", removeRound);
+        document.getElementById("saveDataBtn").addEventListener("click", saveData);
+        document.getElementById("resetGameBtn").addEventListener("click", resetGame);
+
+        function saveData() {
+            localStorage.setItem("players", JSON.stringify(players));
+            localStorage.setItem("rounds", JSON.stringify(rounds));
+        }
+
+        // Reordena jugadores y rounds en base a los totales, para rankearlos
+        function reorderPlayers(totals) {
+            // Creamos un array con { name, index, total }
+            let combined = players.map((p, i) => ({
+                name: p.name,
+                index: i,
+                total: totals[i]
+            }));
+
+            // Orden descendente por total
+            combined.sort((a,b) => b.total - a.total);
+
+            // Reordenamos el array players según la clasificación
+            let newPlayers = [];
+            let newRounds = [];
+
+            // Construir newRounds con la misma estructura de rounds
+            // Primero inicializamos con sub-arrays vacíos
+            rounds.forEach(() => newRounds.push([]));
+
+            // Recorremos la clasificación
+            for(let rank=0; rank<combined.length; rank++) {
+                newPlayers.push({ name: combined[rank].name });
+            }
+
+            // Reordenamos las columnas de cada round
+            for(let r=0; r<rounds.length; r++) {
+                let oldRound = rounds[r];
+                let newRound = [];
+                combined.forEach(obj => {
+                    newRound.push(oldRound[obj.index]);
+                });
+                newRounds[r] = newRound;
+            }
+
+            // Asignamos
+            players = newPlayers;
+            rounds = newRounds;
+
+            // Guardamos
+            saveData();
+        }
+
+        // Calcula y muestra el total de puntajes + emoticones + ganador
+        function updateTotal() {
+            let totalRow = document.getElementById("totalRow");
+            totalRow.innerHTML = '<th>Total</th>';
+            let totals = new Array(players.length).fill(0);
+            let winnerMessage = document.getElementById("winnerMessage");
+            winnerMessage.textContent = "";
+
+            // Suma todos los puntajes
+            rounds.forEach(round => {
+                round.forEach((score, i) => {
+                    totals[i] += score;
+                });
+            });
+
+            // Calcula el máximo
+            let maxScore = Math.max(...totals);
+            let winners = [];
+            let someoneAbove1100 = false;
+
+            // Asigna emoticon y determina ganadores
+            for (let j = 0; j < players.length; j++) {
+                let emoji = "😐";
+                if (totals[j] >= 1100) {
+                    emoji = "😎🤙";
+                    someoneAbove1100 = true;
+                } else if (totals[j] >= 950) emoji = "🤏🥳";
+                else if (totals[j] >= 850) emoji = "🤪🤙";
+                else if (totals[j] >= 650) emoji = "😆";
+                else if (totals[j] >= 450) emoji = "✌😁";
+                else if (totals[j] >= 250) emoji = "☝🙂";
+                else if (totals[j] <= -100) emoji = "🤬";
+                else if (totals[j] <= -70) emoji = "😡";
+                else if (totals[j] <= -50) emoji = "😠";
+                else if (totals[j] < 0) emoji = "😨";
+
+                if (totals[j] === maxScore && maxScore > 0) {
+                    winners.push(players[j].name);
+                }
+
+                totalRow.innerHTML += `<th>${totals[j]} ${emoji}</th>`;
+            }
+
+            // Manejo del ganador y animación
+            if (winners.length > 0 && maxScore >= 1100) {
+                winnerMessage.textContent = `🎉 GANADOR: ${winners.join(", ")} 🎉`;
+                // Agregamos la clase con animación
+                winnerMessage.classList.add('winner-anim');
+            } else {
+                // Quitamos la clase de animación si ya no aplica
+                winnerMessage.classList.remove('winner-anim');
+            }
+
+            // Si alguien llegó a 1100 o más y no estamos en reordenamiento, reorder
+            if (someoneAbove1100 && !isReordering) {
+                isReordering = true;
+                reorderPlayers(totals);
+                // Luego de reordenar, actualizamos la tabla
+                updateTable();
+                isReordering = false;
+            }
+
+            saveData();
+        }
+
+        function addPlayer() {
+            let playerName = document.getElementById("playerName").value.trim();
+            if (playerName === "") {
+                alert("Por favor, ingrese un nombre válido.");
+                return;
+            }
+            players.push({ name: playerName });
+            rounds.forEach(round => round.push(0)); 
+            document.getElementById("playerName").value = "";
+            saveData();
+            updateTable();
+        }
+
+        function addRound() {
+            rounds.push(new Array(players.length).fill(0));
+            saveData();
+            updateTable();
+        }
+
+        function removeRound() {
+            if (rounds.length > 0) {
+                rounds.pop();
+                saveData();
+                updateTable();
+            }
+        }
+
+        function resetGame() {
+            if (confirm("¿Seguro que quieres reiniciar la partida? Se perderán todos los datos.")) {
+                localStorage.removeItem("players");
+                localStorage.removeItem("rounds");
+                players = [];
+                rounds = [];
+                updateTable();
+            }
+        }
+
+        // Actualiza la tabla de rondas
+        function updateTable() {
+            let playersRow = document.getElementById("playersRow");
+            let scoreTable = document.getElementById("scoreTable");
+            playersRow.innerHTML = '<th>Ronda</th>';
+            scoreTable.innerHTML = '';
+
+            // Crea los encabezados con los nombres de los jugadores
+            players.forEach(player => {
+                playersRow.innerHTML += `<th>${player.name}</th>`;
+            });
+
+            // Crea las filas de rondas
+            rounds.forEach((round, index) => {
+                let row = scoreTable.insertRow();
+                row.insertCell(0).textContent = `Puntaje ${index + 1}`;
+                round.forEach((score, i) => {
+                    let cell = row.insertCell();
+                    let input = document.createElement("input");
+                    input.type = "number";
+                    input.classList.add("score-input");
+                    input.value = score;
+                    input.oninput = () => {
+                        rounds[index][i] = parseInt(input.value) || 0;
+                        saveData();
+                        // Al cambiar un valor, recalcula totales
+                        updateTotal();
+                    };
+                    cell.appendChild(input);
+                });
+            });
+
+            // Cada vez que se actualiza la tabla, calculamos totales
+            updateTotal();
+        }
+
+        /*
+        Test Cases:
+          1) Add a player named "Juan" and verify in localStorage players array.
+          2) Add multiple rounds. Input numbers for a player to exceed 1100.
+             Check that the reorder function triggers and see if the new order is correct.
+          3) Negative values to see if emoticons change properly.
+        */
+
+        window.onload = updateTable;
+    </script>
+</body>
+</html>
